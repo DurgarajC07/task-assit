@@ -7,6 +7,11 @@ window.switchView = function(viewName) {
     // Hide all views
     document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
     
+    // Stop analytics auto-refresh when leaving analytics view
+    if (Analytics.updateInterval) {
+        Analytics.stopAutoRefresh();
+    }
+    
     // Show selected view
     const view = document.getElementById(`${viewName}View`);
     if (view) {
@@ -36,15 +41,15 @@ const Dashboard = {
             // Load stats
             await Tasks.loadStats();
             
-            // Load recent tasks for activity
-            const response = await API.tasks.list({});
+            // Load recent tasks sorted by creation date (newest first)
+            const response = await API.tasks.list({ sort_by: 'created_at', sort_order: 'desc' });
             const tasks = (response.data?.tasks || response.tasks || []).map(task => ({
                 ...task,
                 status: task.status?.toUpperCase() || 'PENDING',
                 priority: task.priority?.toUpperCase() || 'MEDIUM'
             }));
             
-            // Display recent 5 tasks
+            // Display recent 5 tasks (already sorted DESC)
             this.renderRecentActivity(tasks.slice(0, 5));
         } catch (error) {
             console.error('Failed to load dashboard data:', error);
@@ -86,8 +91,19 @@ const Dashboard = {
 const Analytics = {
     statusChart: null,
     priorityChart: null,
+    updateInterval: null,
     
     async init() {
+        try {
+            await this.loadData();
+            // Setup auto-refresh every 10 seconds for real-time data
+            this.startAutoRefresh();
+        } catch (error) {
+            console.error('Failed to load analytics:', error);
+        }
+    },
+    
+    async loadData() {
         try {
             const response = await API.tasks.getStats();
             const stats = response.data?.statistics || response.statistics || {};
@@ -95,7 +111,23 @@ const Analytics = {
             this.renderStatusChart(stats);
             this.renderPriorityChart(stats);
         } catch (error) {
-            console.error('Failed to load analytics:', error);
+            console.error('Failed to load analytics data:', error);
+        }
+    },
+    
+    startAutoRefresh() {
+        // Clear existing interval if any
+        if (this.updateInterval) {
+            clearInterval(this.updateInterval);
+        }
+        // Refresh every 10 seconds
+        this.updateInterval = setInterval(() => this.loadData(), 10000);
+    },
+    
+    stopAutoRefresh() {
+        if (this.updateInterval) {
+            clearInterval(this.updateInterval);
+            this.updateInterval = null;
         }
     },
     
@@ -213,8 +245,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     WebSocketManager.on('task_update', (data) => {
         console.log('[App] Task update received:', data);
-        Tasks.loadTasks();
-        Tasks.loadStats();
+        
+        // Update tasks view if visible
+        const tasksView = document.getElementById('tasksView');
+        if (tasksView && !tasksView.classList.contains('hidden')) {
+            Tasks.loadTasks();
+            Tasks.loadStats();
+        }
+        
+        // Update dashboard if visible
+        const dashboardView = document.getElementById('dashboardView');
+        if (dashboardView && !dashboardView.classList.contains('hidden')) {
+            Dashboard.loadData();
+        }
+        
+        // Update analytics if visible
+        const analyticsView = document.getElementById('analyticsView');
+        if (analyticsView && !analyticsView.classList.contains('hidden')) {
+            Analytics.loadData();
+        }
+        
         UI.showToast('Task updated', 'info');
     });
 

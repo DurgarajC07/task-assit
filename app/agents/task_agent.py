@@ -214,8 +214,23 @@ class TaskManagementAgent(BaseAgent):
                 for tag in filters["tags"]:
                     query = query.where(Task.tags.contains([tag]))
 
-            # Order by due date and priority
-            query = query.order_by(Task.due_date, Task.priority)
+            # Apply sorting
+            sort_by = filters.get("sort_by", "due_date")
+            sort_order = filters.get("sort_order", "asc")
+            
+            if sort_by == "created_at":
+                if sort_order == "desc":
+                    query = query.order_by(Task.created_at.desc())
+                else:
+                    query = query.order_by(Task.created_at)
+            elif sort_by == "updated_at":
+                if sort_order == "desc":
+                    query = query.order_by(Task.updated_at.desc())
+                else:
+                    query = query.order_by(Task.updated_at)
+            else:
+                # Default: order by due date and priority
+                query = query.order_by(Task.due_date, Task.priority)
 
             result = await self.db.execute(query)
             tasks = result.scalars().all()
@@ -589,6 +604,12 @@ class TaskManagementAgent(BaseAgent):
                 if t.due_date and t.due_date < now
                 and t.status != TaskStatus.COMPLETED
             )
+            
+            # Priority breakdown
+            low_priority = sum(1 for t in tasks if t.priority == TaskPriority.LOW)
+            medium_priority = sum(1 for t in tasks if t.priority == TaskPriority.MEDIUM)
+            high_priority_count = sum(1 for t in tasks if t.priority == TaskPriority.HIGH)
+            urgent_priority = sum(1 for t in tasks if t.priority == TaskPriority.URGENT)
 
             completion_rate = (
                 (completed / total * 100) if total > 0 else 0
@@ -597,14 +618,25 @@ class TaskManagementAgent(BaseAgent):
             return {
                 "success": True,
                 "data": {
-                    "total_tasks": total,
-                    "pending_tasks": pending,
-                    "in_progress_tasks": in_progress,
-                    "completed_tasks": completed,
-                    "cancelled_tasks": cancelled,
-                    "high_priority_tasks": high_priority,
-                    "overdue_tasks": overdue,
-                    "completion_rate": round(completion_rate, 2),
+                    "statistics": {
+                        "total_tasks": total,
+                        "pending_tasks": pending,
+                        "in_progress_tasks": in_progress,
+                        "completed_tasks": completed,
+                        "cancelled_tasks": cancelled,
+                        "high_priority_tasks": high_priority,
+                        "overdue_tasks": overdue,
+                        "completion_rate": round(completion_rate, 2),
+                        # Status breakdown for charts
+                        "pending": pending,
+                        "in_progress": in_progress,
+                        "completed": completed,
+                        # Priority breakdown for charts
+                        "low_priority": low_priority,
+                        "medium_priority": medium_priority,
+                        "high_priority": high_priority_count,
+                        "urgent_priority": urgent_priority,
+                    }
                 },
             }
 

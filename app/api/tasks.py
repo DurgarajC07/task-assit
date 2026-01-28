@@ -48,6 +48,8 @@ async def list_tasks(
     status_filter: str = None,
     priority: str = None,
     filter_type: str = None,
+    sort_by: str = None,
+    sort_order: str = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -61,6 +63,10 @@ async def list_tasks(
             filters["priority"] = priority
         if filter_type:
             filters["filter_type"] = filter_type
+        if sort_by:
+            filters["sort_by"] = sort_by
+        if sort_order:
+            filters["sort_order"] = sort_order
 
         result = await service.get_tasks(
             user_id=current_user.id,
