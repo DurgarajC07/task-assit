@@ -36,12 +36,13 @@ class AgentOrchestrator:
         """Process a chat message through the agent pipeline.
 
         Flow:
-        1. Store user message in memory
-        2. Intent Agent analyzes message
-        3. If clarification needed, ask user
-        4. Task Agent executes operation
-        5. Conversation Agent generates response
-        6. Store response in memory
+        1. Gather user context (recent tasks, preferences)
+        2. Store user message in memory
+        3. Intent Agent analyzes message with context
+        4. If clarification needed, ask user
+        5. Task Agent executes operation
+        6. Conversation Agent generates response with context
+        7. Store response in memory
 
         Args:
             user_id: User ID.
@@ -56,6 +57,13 @@ class AgentOrchestrator:
 
         try:
             logger.info(f"Processing chat for user {user_id}: {message}")
+            
+            # Step 0: Gather user context for better understanding
+            user_context = await self.memory_agent.get_user_context(user_id)
+            conversation_history = await self.memory_agent.get_conversation_history(
+                user_id, session_id, limit=5
+            )
+            logger.debug(f"User context retrieved: {user_context.get('success')}")
             
             # Step 1: Store user message
             await self.memory_agent.store_conversation(
@@ -120,10 +128,19 @@ class AgentOrchestrator:
 
             # Step 5: Generate conversational response
             logger.info("Generating conversational response")
+            
+            # Build rich context for conversation agent
+            conversation_context = {
+                "conversation_history": conversation_history.get("data", {}).get("messages", []),
+                "user_context": user_context.get("data", {}),
+                "recent_tasks": user_context.get("data", {}).get("recent_tasks", []),
+            }
+            
             response_result = await self.conversation_agent.execute(
                 user_message=message,
                 intent=intent,
                 action_result=task_result,
+                context=conversation_context,
             )
 
             response_message = response_result.get(

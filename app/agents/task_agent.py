@@ -1,6 +1,7 @@
 """Task management agent."""
 from typing import Any, Dict, Optional, List
 import uuid
+import logging
 from datetime import datetime
 from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,8 @@ from app.utils import (
     get_date_range_for_filter,
     is_overdue,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TaskManagementAgent(BaseAgent):
@@ -87,6 +90,8 @@ class TaskManagementAgent(BaseAgent):
             Created task data.
         """
         try:
+            logger.info(f"Creating task with data: {task_data}")
+            
             # Validate and extract data
             title = validate_task_title(task_data.get("title", ""))
             description = task_data.get("description", "").strip() or None
@@ -99,14 +104,20 @@ class TaskManagementAgent(BaseAgent):
             
             tags = validate_tags(task_data.get("tags", []))
 
-            # Parse due date
+            # Parse due date and time with better logging
             due_date = None
             if task_data.get("due_date"):
                 due_date_str = task_data.get("due_date")
+                logger.debug(f"Parsing due date: '{due_date_str}'")
                 parsed_date = parse_natural_date(due_date_str)
+                
                 if parsed_date:
                     time_str = task_data.get("due_time", "")
+                    logger.debug(f"Combining with time: '{time_str}'")
                     due_date = combine_date_and_time(parsed_date, time_str)
+                    logger.info(f"Final due date: {due_date}")
+                else:
+                    logger.warning(f"Could not parse date: '{due_date_str}'")
 
             # Create task
             task = Task(
@@ -132,6 +143,8 @@ class TaskManagementAgent(BaseAgent):
             )
 
             await self.db.commit()
+            
+            logger.info(f"Task created successfully: {task.id}")
 
             return {
                 "success": True,
@@ -140,8 +153,10 @@ class TaskManagementAgent(BaseAgent):
             }
 
         except ValidationException as e:
+            logger.error(f"Validation error creating task: {e.message}")
             return {"success": False, "error": e.message, "details": e.details}
         except Exception as e:
+            logger.error(f"Error creating task: {e}", exc_info=True)
             await self.db.rollback()
             return {"success": False, "error": str(e)}
 

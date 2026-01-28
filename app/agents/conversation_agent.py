@@ -55,24 +55,46 @@ Keep responses brief and actionable."""
             user_message: Original user message.
             intent: Detected intent.
             action_result: Result from task agent.
-            context: Optional additional context.
+            context: Optional additional context (conversation history, user context).
 
         Returns:
             Response dictionary with message.
         """
         try:
+            # Build context-aware message for LLM
+            context_info = ""
+            if context:
+                # Add conversation history context
+                conv_history = context.get("conversation_history", [])
+                if conv_history:
+                    recent_messages = conv_history[-3:]  # Last 3 messages
+                    context_info += "\\n\\nRecent conversation:\\n"
+                    for msg in recent_messages:
+                        role = msg.get("role", "user")
+                        content = msg.get("message", "")
+                        context_info += f"{role}: {content}\\n"
+                
+                # Add user context (recent tasks, etc.)
+                user_ctx = context.get("user_context", {})
+                recent_tasks = user_ctx.get("recent_tasks", [])
+                if recent_tasks and len(recent_tasks) > 0:
+                    context_info += f"\\n\\nUser has {len(recent_tasks)} recent tasks.\\n"
+            
             # Build context message
             context_msg = f"""
 User said: "{user_message}"
 Detected Intent: {intent}
 Action Result: {json.dumps(action_result, indent=2, default=str)}
+{context_info}
 
-Generate a natural, helpful response to the user based on the action result."""
+Generate a natural, helpful, and personalized response to the user based on the action result and context.
+Be conversational and refer to previous interactions when relevant."""
 
             provider = get_provider()
             response_text = await provider.generate_response(
                 context_msg,
-                self.CONVERSATION_SYSTEM_PROMPT
+                self.CONVERSATION_SYSTEM_PROMPT,
+                context=context  # Pass context to provider for better responses
             )
 
             return {

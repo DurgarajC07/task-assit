@@ -58,7 +58,9 @@ def get_llm_provider(provider: Optional[str] = None) -> BaseLLMProvider:
     elif provider_name == LLMProvider.GROK:
         if not settings.grok_api_key:
             raise ValueError("GROK_API_KEY environment variable is not set")
-        return GrokProvider(settings.grok_api_key)
+        # Use model from settings if available, otherwise default
+        model = getattr(settings, 'llm_model', 'llama-3.1-8b-instant')
+        return GrokProvider(settings.grok_api_key, model=model)
     
     else:
         raise ValueError(

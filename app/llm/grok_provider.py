@@ -1,5 +1,6 @@
 """xAI Grok LLM provider."""
 import json
+import logging
 from typing import Optional
 
 try:
@@ -9,18 +10,27 @@ except ImportError:
 
 from .base import BaseLLMProvider
 
+logger = logging.getLogger(__name__)
+
 
 class GrokProvider(BaseLLMProvider):
     """xAI Grok LLM provider using OpenAI-compatible API."""
 
-    def __init__(self, api_key: str):
-        """Initialize Grok provider."""
+    def __init__(self, api_key: str, model: str = "llama-3.1-8b-instant"):
+        """Initialize Grok provider.
+        
+        Args:
+            api_key: Grok API key
+            model: Model to use (default: llama-3.1-8b-instant for free tier)
+        """
         super().__init__(api_key)
         if OpenAI is None:
             raise ImportError("openai package not installed. Run: pip install openai")
         
         self.client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
-        self.model = "grok-2-latest"
+        # Use free tier model by default
+        self.model = model
+        logger.info(f"Initialized Grok provider with model: {self.model}")
 
     async def classify_intent(
         self,
@@ -29,41 +39,62 @@ class GrokProvider(BaseLLMProvider):
     ) -> dict:
         """Classify user intent using Grok."""
         try:
+            logger.debug(f"Classifying intent for message: {user_message[:100]}...")
             response = self.client.chat.completions.create(
                 model=self.model,
-                max_tokens=1024,
+                max_tokens=2048,
+                temperature=0.3,  # Lower temperature for more consistent classification
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
                 ]
             )
             
-            result_text = response.choices[0].message.content
+            result_text = response.choices[0].message.content.strip()
+            logger.debug(f"Raw LLM response: {result_text}")
             
-            # Parse JSON response
+            # Try to parse JSON response with multiple strategies
             try:
+                # Strategy 1: Direct JSON parse
+                try:
+                    return json.loads(result_text)
+                except json.JSONDecodeError:
+                    pass
+                
+                # Strategy 2: Extract JSON from markdown code blocks
+                if "```json" in result_text:
+                    json_start = result_text.find("```json") + 7
+                    json_end = result_text.find("```", json_start)
+                    if json_end > json_start:
+                        json_str = result_text[json_start:json_end].strip()
+                        return json.loads(json_str)
+                
+                # Strategy 3: Find first JSON object
                 json_start = result_text.find('{')
                 json_end = result_text.rfind('}') + 1
                 if json_start >= 0 and json_end > json_start:
                     json_str = result_text[json_start:json_end]
                     return json.loads(json_str)
-            except (json.JSONDecodeError, ValueError):
-                pass
+                    
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"Failed to parse JSON response: {e}")
             
+            logger.warning("Could not extract valid JSON from LLM response")
             return {
                 "intent": "UNCLEAR",
                 "confidence": 0.0,
                 "entities": {},
                 "clarification_needed": True,
-                "clarification_message": "I couldn't understand your request clearly."
+                "clarification_question": "I couldn't understand your request clearly. Could you rephrase it?"
             }
         except Exception as e:
+            logger.error(f"Error in classify_intent: {e}", exc_info=True)
             return {
                 "intent": "UNCLEAR",
                 "confidence": 0.0,
                 "entities": {},
                 "clarification_needed": True,
-                "clarification_message": f"Error processing request: {str(e)}"
+                "clarification_question": f"I encountered an error processing your request. Please try again."
             }
 
     async def generate_response(
@@ -74,18 +105,35 @@ class GrokProvider(BaseLLMProvider):
     ) -> str:
         """Generate a response using Grok."""
         try:
+            logger.debug(f"Generating response for message: {user_message[:100]}...")
+            
+            # Build messages with context if provided
+            messages = [{"role": "system", "content": system_prompt}]
+            
+            if context and context.get("conversation_history"):
+                # Add recent conversation history for better context
+                for msg in context["conversation_history"][-5:]:
+                    messages.append({
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("message", "")
+                    })
+            
+            messages.append({"role": "user", "content": user_message})
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=1024,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ]
+                temperature=0.7,  # Balanced temperature for natural responses
+                messages=messages
             )
             
-            return response.choices[0].message.content
+            response_text = response.choices[0].message.content.strip()
+            logger.debug(f"Generated response: {response_text[:100]}...")
+            return response_text
+            
         except Exception as e:
-            return f"I encountered an error: {str(e)}"
+            logger.error(f"Error in generate_response: {e}", exc_info=True)
+            return f"I encountered an error while processing your request. Please try again."
 
     async def refine_intent(
         self,

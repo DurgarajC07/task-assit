@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # LLM Configuration
-    llm_provider: str = "claude"  # Options: claude, openai, gemini, grok
+    llm_provider: str = "grok"  # Options: claude, openai, gemini, grok
+    llm_model: str = "llama-3.1-8b-instant"  # Default model for Grok (free tier)
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     gemini_api_key: str = ""
