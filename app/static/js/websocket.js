@@ -17,7 +17,7 @@ const WebSocketManager = {
      */
     connect() {
         if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-            console.log('[WebSocket] Already connected or connecting');
+
             return Promise.resolve();
         }
 

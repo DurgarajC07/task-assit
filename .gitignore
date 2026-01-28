@@ -205,7 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-*.md
 
+# Database
+*.db
+task_assistant.db
+
+# Project-specific
 LLM_CHANGES.txt
 PROJECT_STATUS.txt

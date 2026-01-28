@@ -1,6 +1,7 @@
 """Application configuration management."""
 from pydantic_settings import BaseSettings
 from typing import Optional
+import secrets
 
 
 class Settings(BaseSettings):
@@ -9,13 +10,14 @@ class Settings(BaseSettings):
     # Application
     app_name: str = "Task Assistant"
     debug: bool = False
-    allowed_origins: str = "http://localhost:3000,http://localhost:8000"
+    port: int = 8000
+    allowed_origins: str = "*"
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./task_assistant.db"
 
     # Security
-    secret_key: str = "your-secret-key-change-in-production"
+    secret_key: str = secrets.token_urlsafe(32)
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
@@ -43,8 +45,11 @@ class Settings(BaseSettings):
 
     def get_allowed_origins(self) -> list[str]:
         """Parse allowed origins from comma-separated string."""
+        if self.allowed_origins == "*":
+            return ["*"]
         if isinstance(self.allowed_origins, str):
-            return [origin.strip() for origin in self.allowed_origins.split(",")]
+            origins = [origin.strip() for origin in self.allowed_origins.split(",")]
+            return [o for o in origins if o]  # Filter empty strings
         return self.allowed_origins
 
 

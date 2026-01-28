@@ -231,8 +231,6 @@ const Analytics = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Task Assistant Pro initialized');
-
     // Setup WebSocket event handlers
     WebSocketManager.on('connected', () => {
         UI.updateStatus('online');
@@ -244,8 +242,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     WebSocketManager.on('task_update', (data) => {
-        console.log('[App] Task update received:', data);
-        
         // Update tasks view if visible
         const tasksView = document.getElementById('tasksView');
         if (tasksView && !tasksView.classList.contains('hidden')) {
@@ -269,8 +265,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     WebSocketManager.on('chat_response', (data) => {
-        console.log('[App] Chat response received:', data);
-        // This is handled by Chat module, but log it here for debugging
+        // This is handled by Chat module
     });
     
     WebSocketManager.on('error', (error) => {
