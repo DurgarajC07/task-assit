@@ -41,7 +41,7 @@ git push origin main
 - **Branch**: `main`
 - **Root Directory**: Leave empty
 - **Runtime**: `Python 3`
-- **Build Command**: `pip install -r requirements.txt`
+- **Build Command**: `pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt`
 - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - **Plan**: Free (or paid for better performance)
 
@@ -52,6 +52,7 @@ Click **"Advanced"** and add these environment variables:
 #### Required Variables:
 
 ```
+PYTHON_VERSION=3.11.0
 DATABASE_URL=sqlite+aiosqlite:///./task_assistant.db
 SECRET_KEY=[Click "Generate" button - Render will create a secure key]
 ALGORITHM=HS256
