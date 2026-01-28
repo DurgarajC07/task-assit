@@ -321,6 +321,35 @@ class AgentOrchestrator:
                 user_id=user_id,
             )
 
+        elif intent == "BULK_DELETE":
+            criteria = entities.get("bulk_criteria", {})
+            logger.info(f"Bulk delete with criteria: {criteria}")
+            return await self.task_agent.execute(
+                action="bulk_delete",
+                user_id=user_id,
+                criteria=criteria,
+            )
+
+        elif intent == "BULK_UPDATE":
+            criteria = entities.get("bulk_criteria", {})
+            updates = entities.get("bulk_updates", {})
+            logger.info(f"Bulk update with criteria: {criteria}, updates: {updates}")
+            return await self.task_agent.execute(
+                action="bulk_update",
+                user_id=user_id,
+                criteria=criteria,
+                updates=updates,
+            )
+
+        elif intent == "BULK_COMPLETE":
+            criteria = entities.get("bulk_criteria", {})
+            logger.info(f"Bulk complete with criteria: {criteria}")
+            return await self.task_agent.execute(
+                action="bulk_complete",
+                user_id=user_id,
+                criteria=criteria,
+            )
+
         else:
             return {
                 "success": False,

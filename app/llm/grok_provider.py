@@ -1,4 +1,4 @@
-"""xAI Grok LLM provider."""
+"""Groq LLM provider (groq.com - not xAI)."""
 import json
 import logging
 from typing import Optional
@@ -14,23 +14,32 @@ logger = logging.getLogger(__name__)
 
 
 class GrokProvider(BaseLLMProvider):
-    """xAI Grok LLM provider using OpenAI-compatible API."""
+    """Groq LLM provider using OpenAI-compatible API.
+    
+    Uses Groq Cloud API (console.groq.com) with fast LLM inference.
+    Supports models like llama-3.1-8b-instant, mixtral, etc.
+    """
 
     def __init__(self, api_key: str, model: str = "llama-3.1-8b-instant"):
-        """Initialize Grok provider.
+        """Initialize Groq provider.
         
         Args:
-            api_key: Grok API key
-            model: Model to use (default: llama-3.1-8b-instant for free tier)
+            api_key: Groq API key (from console.groq.com)
+            model: Model to use (default: llama-3.1-8b-instant)
+                   Available: llama-3.1-8b-instant, llama-3.1-70b-versatile,
+                             mixtral-8x7b-32768, gemma-7b-it
         """
         super().__init__(api_key)
         if OpenAI is None:
             raise ImportError("openai package not installed. Run: pip install openai")
         
-        self.client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
-        # Use free tier model by default
+        # Groq API endpoint
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.groq.com/openai/v1"
+        )
         self.model = model
-        logger.info(f"Initialized Grok provider with model: {self.model}")
+        logger.info(f"Initialized Groq provider with model: {self.model}")
 
     async def classify_intent(
         self,

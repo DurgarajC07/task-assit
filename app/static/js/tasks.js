@@ -54,19 +54,30 @@ const Tasks = {
     async loadStats() {
         try {
             const response = await API.tasks.getStats();
-            const stats = response.data?.statistics || response.statistics || {};
+            console.log('Stats response:', response); // Debug log
+            
+            // Handle nested data structure
+            const stats = response.data || response;
 
             const totalEl = document.getElementById('totalTasksCount');
             const inProgressEl = document.getElementById('inProgressCount');
             const completedEl = document.getElementById('completedCount');
             const highPriorityEl = document.getElementById('highPriorityCount');
 
+            // Map API field names to UI elements
             if (totalEl) totalEl.textContent = stats.total_tasks || 0;
-            if (inProgressEl) inProgressEl.textContent = stats.in_progress || 0;
-            if (completedEl) completedEl.textContent = stats.completed || 0;
-            if (highPriorityEl) highPriorityEl.textContent = stats.high_priority || 0;
+            if (inProgressEl) inProgressEl.textContent = stats.in_progress_tasks || stats.in_progress || 0;
+            if (completedEl) completedEl.textContent = stats.completed_tasks || stats.completed || 0;
+            if (highPriorityEl) {
+                // Calculate high priority count from tasks if not provided
+                const highPriority = stats.high_priority_tasks || stats.high_priority || 0;
+                highPriorityEl.textContent = highPriority;
+            }
+            
+            console.log('Stats loaded successfully'); // Debug log
         } catch (error) {
             console.error('Failed to load stats:', error);
+            UI.showToast('Failed to load statistics', 'error');
         }
     },
 

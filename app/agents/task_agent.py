@@ -70,6 +70,14 @@ class TaskManagementAgent(BaseAgent):
                 return await self.search_tasks(user_id, kwargs.get("query", ""))
             elif action == "statistics":
                 return await self.get_statistics(user_id)
+            elif action == "bulk_delete":
+                return await self.bulk_delete_tasks(user_id, kwargs.get("criteria", {}))
+            elif action == "bulk_update":
+                return await self.bulk_update_tasks(
+                    user_id, kwargs.get("criteria", {}), kwargs.get("updates", {})
+                )
+            elif action == "bulk_complete":
+                return await self.bulk_complete_tasks(user_id, kwargs.get("criteria", {}))
             else:
                 return {"success": False, "error": f"Unknown action: {action}"}
         except Exception as e:
@@ -571,6 +579,10 @@ class TaskManagementAgent(BaseAgent):
             )
             completed = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED)
             cancelled = sum(1 for t in tasks if t.status == TaskStatus.CANCELLED)
+            high_priority = sum(
+                1 for t in tasks if t.priority in [TaskPriority.HIGH, TaskPriority.URGENT]
+                and t.status != TaskStatus.COMPLETED
+            )
             overdue = sum(
                 1
                 for t in tasks
@@ -590,6 +602,7 @@ class TaskManagementAgent(BaseAgent):
                     "in_progress_tasks": in_progress,
                     "completed_tasks": completed,
                     "cancelled_tasks": cancelled,
+                    "high_priority_tasks": high_priority,
                     "overdue_tasks": overdue,
                     "completion_rate": round(completion_rate, 2),
                 },
@@ -671,3 +684,274 @@ class TaskManagementAgent(BaseAgent):
             new_values=new_values,
         )
         self.db.add(audit_log)
+
+    async def bulk_delete_tasks(
+        self,
+        user_id: uuid.UUID,
+        criteria: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Delete multiple tasks based on criteria.
+
+        Args:
+            user_id: User ID.
+            criteria: Filter criteria (status, priority, due_date_filter).
+
+        Returns:
+            Result with count of deleted tasks.
+        """
+        try:
+            logger.info(f"Bulk delete with criteria: {criteria}")
+            
+            # Build query
+            query = select(Task).where(
+                and_(Task.user_id == user_id, Task.deleted_at.is_(None))
+            )
+
+            # Apply filters
+            if criteria.get("status"):
+                status = TaskStatus(criteria["status"].lower())
+                query = query.where(Task.status == status)
+            
+            if criteria.get("priority"):
+                priority = TaskPriority(criteria["priority"].lower())
+                query = query.where(Task.priority == priority)
+            
+            if criteria.get("due_date_filter"):
+                date_range = get_date_range_for_filter(criteria["due_date_filter"])
+                if date_range[0]:
+                    query = query.where(Task.due_date >= date_range[0])
+                if date_range[1]:
+                    query = query.where(Task.due_date < date_range[1])
+
+            # Get tasks to delete
+            result = await self.db.execute(query)
+            tasks = result.scalars().all()
+            
+            if not tasks:
+                return {
+                    "success": True,
+                    "message": "No tasks match the criteria",
+                    "data": {"deleted_count": 0}
+                }
+
+            # Soft delete
+            from datetime import datetime
+            deleted_count = 0
+            for task in tasks:
+                task.deleted_at = datetime.utcnow()
+                await self._log_audit(
+                    task.id,
+                    user_id,
+                    AuditAction.DELETED,
+                    self._task_to_dict(task),
+                    None,
+                )
+                deleted_count += 1
+
+            await self.db.commit()
+            
+            logger.info(f"Bulk deleted {deleted_count} tasks")
+
+            return {
+                "success": True,
+                "message": f"Successfully deleted {deleted_count} task(s)",
+                "data": {
+                    "deleted_count": deleted_count,
+                    "criteria": criteria
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Bulk delete error: {e}", exc_info=True)
+            await self.db.rollback()
+            return {"success": False, "error": str(e)}
+
+    async def bulk_update_tasks(
+        self,
+        user_id: uuid.UUID,
+        criteria: Dict[str, Any],
+        updates: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Update multiple tasks based on criteria.
+
+        Args:
+            user_id: User ID.
+            criteria: Filter criteria.
+            updates: Fields to update.
+
+        Returns:
+            Result with count of updated tasks.
+        """
+        try:
+            logger.info(f"Bulk update with criteria: {criteria}, updates: {updates}")
+            
+            # Build query
+            query = select(Task).where(
+                and_(Task.user_id == user_id, Task.deleted_at.is_(None))
+            )
+
+            # Apply filters
+            if criteria.get("status"):
+                status = TaskStatus(criteria["status"].lower())
+                query = query.where(Task.status == status)
+            
+            if criteria.get("priority"):
+                priority = TaskPriority(criteria["priority"].lower())
+                query = query.where(Task.priority == priority)
+            
+            if criteria.get("due_date_filter"):
+                date_range = get_date_range_for_filter(criteria["due_date_filter"])
+                if date_range[0]:
+                    query = query.where(Task.due_date >= date_range[0])
+                if date_range[1]:
+                    query = query.where(Task.due_date < date_range[1])
+
+            # Get tasks to update
+            result = await self.db.execute(query)
+            tasks = result.scalars().all()
+            
+            if not tasks:
+                return {
+                    "success": True,
+                    "message": "No tasks match the criteria",
+                    "data": {"updated_count": 0}
+                }
+
+            # Update tasks
+            updated_count = 0
+            for task in tasks:
+                old_values = self._task_to_dict(task)
+                
+                if updates.get("priority"):
+                    task.priority = TaskPriority(updates["priority"].lower())
+                if updates.get("status"):
+                    task.status = TaskStatus(updates["status"].lower())
+                if updates.get("title"):
+                    task.title = updates["title"]
+                if updates.get("description"):
+                    task.description = updates["description"]
+                if updates.get("due_date"):
+                    parsed_date = parse_natural_date(updates["due_date"])
+                    if parsed_date:
+                        task.due_date = parsed_date
+                if updates.get("tags"):
+                    task.tags = validate_tags(updates["tags"])
+                
+                task.updated_at = datetime.utcnow()
+                
+                await self._log_audit(
+                    task.id,
+                    user_id,
+                    AuditAction.UPDATED,
+                    old_values,
+                    self._task_to_dict(task),
+                )
+                updated_count += 1
+
+            await self.db.commit()
+            
+            logger.info(f"Bulk updated {updated_count} tasks")
+
+            return {
+                "success": True,
+                "message": f"Successfully updated {updated_count} task(s)",
+                "data": {
+                    "updated_count": updated_count,
+                    "criteria": criteria,
+                    "updates": updates
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Bulk update error: {e}", exc_info=True)
+            await self.db.rollback()
+            return {"success": False, "error": str(e)}
+
+    async def bulk_complete_tasks(
+        self,
+        user_id: uuid.UUID,
+        criteria: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Mark multiple tasks as complete based on criteria.
+
+        Args:
+            user_id: User ID.
+            criteria: Filter criteria.
+
+        Returns:
+            Result with count of completed tasks.
+        """
+        try:
+            logger.info(f"Bulk complete with criteria: {criteria}")
+            
+            # Build query
+            query = select(Task).where(
+                and_(
+                    Task.user_id == user_id,
+                    Task.deleted_at.is_(None),
+                    Task.status != TaskStatus.COMPLETED
+                )
+            )
+
+            # Apply filters
+            if criteria.get("status"):
+                status = TaskStatus(criteria["status"].lower())
+                query = query.where(Task.status == status)
+            
+            if criteria.get("priority"):
+                priority = TaskPriority(criteria["priority"].lower())
+                query = query.where(Task.priority == priority)
+            
+            if criteria.get("due_date_filter"):
+                date_range = get_date_range_for_filter(criteria["due_date_filter"])
+                if date_range[0]:
+                    query = query.where(Task.due_date >= date_range[0])
+                if date_range[1]:
+                    query = query.where(Task.due_date < date_range[1])
+
+            # Get tasks to complete
+            result = await self.db.execute(query)
+            tasks = result.scalars().all()
+            
+            if not tasks:
+                return {
+                    "success": True,
+                    "message": "No tasks to complete",
+                    "data": {"completed_count": 0}
+                }
+
+            # Mark as complete
+            from datetime import datetime
+            completed_count = 0
+            for task in tasks:
+                old_values = self._task_to_dict(task)
+                task.status = TaskStatus.COMPLETED
+                task.completed_at = datetime.utcnow()
+                task.updated_at = datetime.utcnow()
+                
+                await self._log_audit(
+                    task.id,
+                    user_id,
+                    AuditAction.UPDATED,
+                    old_values,
+                    self._task_to_dict(task),
+                )
+                completed_count += 1
+
+            await self.db.commit()
+            
+            logger.info(f"Bulk completed {completed_count} tasks")
+
+            return {
+                "success": True,
+                "message": f"Successfully completed {completed_count} task(s)",
+                "data": {
+                    "completed_count": completed_count,
+                    "criteria": criteria
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Bulk complete error: {e}", exc_info=True)
+            await self.db.rollback()
+            return {"success": False, "error": str(e)}

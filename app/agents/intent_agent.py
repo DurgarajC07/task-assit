@@ -18,7 +18,7 @@ CORE CAPABILITIES:
 1. Understand natural language task requests
 2. Extract dates, times, and temporal information accurately
 3. Identify task attributes (priority, tags, descriptions)
-4. Recognize task operations (create, update, delete, complete, search)
+4. Recognize task operations (create, update, delete, complete, search, BULK operations)
 5. Handle context from conversation flow
 
 AVAILABLE INTENTS:
@@ -27,6 +27,9 @@ AVAILABLE INTENTS:
 - UPDATE_TASK: User wants to modify an existing task (e.g., "change the meeting time", "update task")
 - SEARCH_TASKS: User wants to find specific tasks (e.g., "find my meeting", "search for")
 - DELETE_TASK: User wants to remove a task (e.g., "delete the meeting", "remove task")
+- BULK_DELETE: User wants to delete multiple tasks (e.g., "delete all completed tasks", "remove all high priority tasks")
+- BULK_UPDATE: User wants to update multiple tasks (e.g., "mark all today's tasks as high priority", "change all pending tasks to medium")
+- BULK_COMPLETE: User wants to mark multiple tasks as complete (e.g., "complete all today's tasks", "mark all pending as done")
 - GET_STATISTICS: User wants task analytics (e.g., "how many tasks", "my productivity")
 - COMPLETE_TASK: User wants to mark as done (e.g., "mark as complete", "I finished")
 - UNCLEAR: Cannot determine intent with confidence
@@ -42,13 +45,17 @@ ENTITY EXTRACTION RULES:
 - search_query: Keywords for SEARCH_TASKS
 - task_identifier: For UPDATE_TASK/DELETE_TASK/COMPLETE_TASK (exact or partial task title)
 - update_fields: Specific fields to update (title, description, due_date, due_time, priority)
+- bulk_criteria: For BULK operations (status, priority, due_date_filter, tags)
+- bulk_action: What to do in bulk (delete, update, complete)
+- bulk_updates: Fields to update in bulk operations
 
 REASONING APPROACH:
 1. Analyze the user's message for action verbs (create, add, show, delete, update, complete)
-2. Extract temporal information (dates and times) - PRESERVE EXACT USER INPUT
-3. Identify the task subject/title
-4. Infer priority from urgency indicators (urgent, important, asap)
-5. Extract any additional context as description
+2. Detect BULK operations: "all", "multiple", "every", "bulk"
+3. Extract temporal information (dates and times) - PRESERVE EXACT USER INPUT
+4. Identify the task subject/title
+5. Infer priority from urgency indicators (urgent, important, asap)
+6. Extract any additional context as description
 
 EXAMPLES:
 - "create a meeting for tomorrow at 29th jan on 2pm"
@@ -59,13 +66,17 @@ EXAMPLES:
   -> Intent: LIST_TASKS
   -> Entities: {"filters": ["today"]}
 
-- "delete the meeting task"
-  -> Intent: DELETE_TASK
-  -> Entities: {"task_identifier": "meeting"}
+- "delete all completed tasks"
+  -> Intent: BULK_DELETE
+  -> Entities: {"bulk_criteria": {"status": "completed"}}
 
-- "mark meeting as complete"
-  -> Intent: COMPLETE_TASK
-  -> Entities: {"task_identifier": "meeting", "completion_action": "complete"}
+- "mark all today's tasks as high priority"
+  -> Intent: BULK_UPDATE
+  -> Entities: {"bulk_criteria": {"due_date_filter": "today"}, "bulk_updates": {"priority": "high"}}
+
+- "complete all pending tasks"
+  -> Intent: BULK_COMPLETE
+  -> Entities: {"bulk_criteria": {"status": "pending"}}
 
 RESPONSE FORMAT (JSON only, no extra text):
 {
@@ -83,7 +94,8 @@ IMPORTANT:
 - If confidence < 0.7, set clarification_needed to true
 - If intent is UNCLEAR, always set clarification_needed to true
 - Preserve exact date/time strings from user input for accurate parsing
-- Be contextually aware - "it" or "that" may refer to recent tasks"""
+- Be contextually aware - "it" or "that" may refer to recent tasks
+- For BULK operations, extract clear criteria (status, priority, date filters)"""
 
     def __init__(self):
         """Initialize intent agent."""
