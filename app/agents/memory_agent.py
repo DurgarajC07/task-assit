@@ -195,8 +195,11 @@ class MemoryAgent(BaseAgent):
                         {
                             "id": str(t.id),
                             "title": t.title,
+                            "description": t.description,
                             "status": t.status.value,
                             "priority": t.priority.value,
+                            "due_date": t.due_date.isoformat() if t.due_date else None,
+                            "created_at": t.created_at.isoformat() if hasattr(t, 'created_at') and t.created_at else None,
                         }
                         for t in recent_tasks
                     ],

@@ -61,7 +61,7 @@ class AgentOrchestrator:
             # Step 0: Gather user context for better understanding
             user_context = await self.memory_agent.get_user_context(user_id)
             conversation_history = await self.memory_agent.get_conversation_history(
-                user_id, session_id, limit=5
+                user_id, session_id, limit=10  # Increased from 5 to 10 for better memory
             )
             logger.debug(f"User context retrieved: {user_context.get('success')}")
             
@@ -74,8 +74,12 @@ class AgentOrchestrator:
             )
             logger.debug("User message stored in memory")
 
-            # Step 2: Analyze intent
-            intent_result = await self.intent_agent.execute(message)
+            # Step 2: Analyze intent with conversation context
+            intent_context = {
+                "conversation_history": conversation_history.get("data", {}).get("messages", []),
+                "recent_tasks": user_context.get("data", {}).get("recent_tasks", []),
+            }
+            intent_result = await self.intent_agent.execute(message, context=intent_context)
             logger.info(f"Intent analysis result: {intent_result}")
 
             if not intent_result.get("success"):
@@ -94,6 +98,19 @@ class AgentOrchestrator:
             )
 
             logger.info(f"Intent: {intent}, Confidence: {confidence}, Entities: {entities}")
+
+            # REASONING: If user says just "create it" or provides a title after AI asked for clarification
+            # Check if AI just asked a clarification question
+            if intent == "CREATE_TASK" and not entities.get("title"):
+                # Look at last AI message
+                conv_history = intent_context.get("conversation_history", [])
+                if conv_history:
+                    last_ai_msg = next((m for m in reversed(conv_history) if m.get("role") == "assistant"), None)
+                    if last_ai_msg and ("specify" in last_ai_msg.get("message", "").lower() or 
+                                       "what task" in last_ai_msg.get("message", "").lower()):
+                        # User is answering the clarification - treat their message as the task title
+                        entities["title"] = message.strip()
+                        logger.info(f"Extracted title from clarification response: {entities['title']}")
 
             # Step 3: Check if clarification needed
             if clarification_needed or confidence < 0.6:
@@ -221,10 +238,17 @@ class AgentOrchestrator:
             # Find task by identifier
             task_identifier = entities.get("task_identifier")
             if not task_identifier:
-                return {
-                    "success": False,
-                    "error": "Please specify which task to update",
-                }
+                # Try to get most recent task from context
+                if user_context.get("data", {}).get("recent_tasks"):
+                    recent_task = user_context["data"]["recent_tasks"][0]
+                    task_identifier = recent_task.get("title")
+                    logger.info(f"No task_identifier provided, using most recent task: {task_identifier}")
+                
+                if not task_identifier:
+                    return {
+                        "success": False,
+                        "error": "Please specify which task to update",
+                    }
 
             # Get task
             get_result = await self.task_agent.get_task(
@@ -235,13 +259,36 @@ class AgentOrchestrator:
                 return get_result
 
             task_id = uuid.UUID(get_result["data"]["id"])
+            existing_task = get_result["data"]
 
-            # Update task
+            # Smart update: Merge new information with existing data
             updates = {}
             if entities.get("title"):
                 updates["title"] = entities["title"]
+            
+            # Smart description handling: intelligently merge descriptions
             if entities.get("description"):
-                updates["description"] = entities["description"]
+                new_desc = entities["description"].strip()
+                existing_desc = existing_task.get("description", "").strip()
+                
+                if not existing_desc:
+                    # No existing description - use new one
+                    updates["description"] = new_desc
+                    logger.info("No existing description, using new description")
+                else:
+                    # Check if new description is already in existing (avoid duplicates)
+                    if new_desc.lower() in existing_desc.lower():
+                        logger.info("New description already exists in task, skipping update")
+                        # Don't update - content already there
+                    elif existing_desc.lower() in new_desc.lower():
+                        # New description contains and expands on existing - replace
+                        updates["description"] = new_desc
+                        logger.info("New description expands existing, replacing")
+                    else:
+                        # Append new information with clear separation
+                        updates["description"] = f"{existing_desc}\n\n{new_desc}"
+                        logger.info(f"Appending new description to existing: {len(existing_desc)} + {len(new_desc)} chars")
+            
             if entities.get("priority"):
                 updates["priority"] = entities["priority"]
             if entities.get("due_date"):
@@ -249,7 +296,10 @@ class AgentOrchestrator:
                 if entities.get("due_time"):
                     updates["due_time"] = entities["due_time"]
             if entities.get("tags"):
-                updates["tags"] = entities["tags"]
+                # Merge tags instead of replacing
+                existing_tags = existing_task.get("tags", [])
+                new_tags = entities["tags"]
+                updates["tags"] = list(set(existing_tags + new_tags))
             if entities.get("status"):
                 updates["status"] = entities["status"]
 
