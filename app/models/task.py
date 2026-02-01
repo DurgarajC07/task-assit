@@ -1,4 +1,4 @@
-"""Task model."""
+"""Task model with multi-tenant support."""
 import uuid
 from datetime import datetime
 from sqlalchemy import (
@@ -6,14 +6,13 @@ from sqlalchemy import (
     String,
     Text,
     DateTime,
-    Enum,
+    Enum as SQLEnum,
     JSON,
     ForeignKey,
     Index,
 )
 from enum import Enum as PyEnum
-from app.database import Base
-from app.database_utils import GUID
+from app.models.base import TenantModel, GUID
 
 
 class TaskStatus(str, PyEnum):
@@ -34,48 +33,69 @@ class TaskPriority(str, PyEnum):
     URGENT = "urgent"
 
 
-class Task(Base):
-    """Task model for task assistant."""
+class Task(TenantModel):
+    """Task model for task assistant with tenant isolation."""
 
     __tablename__ = "tasks"
 
-    id = Column(GUID, primary_key=True, default=uuid.uuid4)
     user_id = Column(
         GUID,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    title = Column(String(255), nullable=False)
+    project_id = Column(
+        GUID,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    
+    title = Column(String(500), nullable=False)
     description = Column(Text, nullable=True)
+    
     status = Column(
-        Enum(TaskStatus),
+        SQLEnum(TaskStatus),
         default=TaskStatus.PENDING,
         nullable=False,
         index=True,
     )
     priority = Column(
-        Enum(TaskPriority),
+        SQLEnum(TaskPriority),
         default=TaskPriority.MEDIUM,
         nullable=False,
         index=True,
     )
+    
     due_date = Column(DateTime, nullable=True, index=True)
     tags = Column(JSON, default=list, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
-        nullable=False
-    )
+    
+    # Assignment
+    created_by = Column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    assigned_to = Column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # Completion tracking
     completed_at = Column(DateTime, nullable=True)
-    deleted_at = Column(DateTime, nullable=True, index=True)
+    
+    # Additional info
+    task_metadata = Column(JSON, default=dict, nullable=False)
+    # Can store: source="ai", parent_task_id, etc.
+    
+    # Relationships
+    # user = relationship("User", foreign_keys=[user_id], back_populates="tasks")
+    # project = relationship("Project", back_populates="tasks")
+    # assigned_user = relationship("User", foreign_keys=[assigned_to])
 
     __table_args__ = (
-        Index("idx_user_id_status", "user_id", "status"),
-        Index("idx_user_id_due_date", "user_id", "due_date"),
-        Index("idx_user_id_priority", "user_id", "priority"),
+        Index("idx_tasks_tenant_user", "tenant_id", "user_id"),
+        Index("idx_tasks_tenant_status", "tenant_id", "status"),
+        Index("idx_tasks_tenant_priority", "tenant_id", "priority"),
+        Index("idx_tasks_tenant_due_date", "tenant_id", "due_date"),
+        Index("idx_tasks_assigned", "assigned_to"),
+        Index("idx_tasks_project", "project_id"),
+        Index("idx_tasks_composite", "tenant_id", "user_id", "status", "priority"),
     )
 
     def __repr__(self) -> str:
         """String representation."""
-        return f"<Task(id={self.id}, title={self.title}, user_id={self.user_id})>"
+        return f"<Task(id={self.id}, title={self.title}, user_id={self.user_id}, tenant_id={self.tenant_id})>"

@@ -2,7 +2,8 @@
 import uuid
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.agents.orchestrator import AgentOrchestrator
+from app.services.orchestrator.conversation_manager import ConversationManager
+from app.models.conversation import Conversation
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class ChatService:
             db: Database session.
         """
         self.db = db
-        self.orchestrator = AgentOrchestrator(db)
+        self.conversation_manager = ConversationManager(db)
 
     async def process_message(
         self,
@@ -37,13 +38,39 @@ class ChatService:
         """
         logger.info(f"Processing message for user {user_id}: {message}")
         try:
-            result = await self.orchestrator.process_chat(
-                user_id=user_id,
-                message=message,
-                session_id=session_id,
+            # Use NEW conversation manager for chat processing
+            # Get or create conversation
+            from app.core.tenant_context import get_tenant_context
+            tenant_id = get_tenant_context()
+            
+            if session_id:
+                # Get existing conversation
+                conversation = await self.conversation_manager.db.get(Conversation, session_id)
+            else:
+                # Create new conversation
+                conversation = await self.conversation_manager.create_conversation(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    title="Chat Session"
+                )
+                session_id = conversation.id
+            
+            # Send message and get response
+            response = await self.conversation_manager.send_message(
+                conversation_id=session_id,
+                content=message,
+                role="user"
             )
-            logger.info(f"Orchestrator result: {result}")
-            return result
+            
+            logger.info(f"Conversation manager result: {response}")
+            return {
+                "success": True,
+                "message": response.content if hasattr(response, 'content') else str(response),
+                "data": {
+                    "session_id": str(session_id),
+                    "conversation_id": str(session_id)
+                }
+            }
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
             return {
@@ -68,9 +95,26 @@ class ChatService:
         Returns:
             Conversation history.
         """
-        return await self.orchestrator.memory_agent.execute(
-            action="get_history",
-            user_id=user_id,
-            session_id=session_id,
-            limit=limit,
-        )
+        try:
+            messages = await self.conversation_manager.get_messages(
+                conversation_id=session_id,
+                limit=limit
+            )
+            return {
+                "success": True,
+                "messages": [
+                    {
+                        "role": msg.role,
+                        "content": msg.content,
+                        "created_at": msg.created_at.isoformat()
+                    }
+                    for msg in messages
+                ]
+            }
+        except Exception as e:
+            logger.error(f"Error getting history: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "messages": []
+            }

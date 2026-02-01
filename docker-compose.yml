@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   api:
@@ -7,23 +7,47 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///./task_assistant.db
+      # Database
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./task_assistant.db}
+
+      # Security
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - ALGORITHM=${ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+
+      # AI Provider Configuration
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - DEBUG=false
-      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROK_API_KEY=${GROK_API_KEY}
+
+      # Application
+      - APP_NAME=${APP_NAME:-Task Assistant AI}
+      - DEBUG=${DEBUG:-false}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8000}
+
+      # Redis (optional - for caching and rate limiting)
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+
+      # Celery (optional - for background jobs)
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
     volumes:
       - ./:/app
       - task_db:/app
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 5s
 
-  # Optional: PostgreSQL database for production
+  # PostgreSQL database (uncomment for production)
   # postgres:
   #   image: postgres:15-alpine
   #   container_name: task-assistant-db
@@ -42,9 +66,54 @@ services:
   #     timeout: 5s
   #     retries: 5
 
+  # Redis for caching and background jobs (uncomment for production)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: task-assistant-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   command: redis-server --appendonly yes
+
+  # Celery worker for background tasks (uncomment for production)
+  # celery_worker:
+  #   build: .
+  #   container_name: task-assistant-worker
+  #   command: celery -A app.core.celery_tasks worker --loglevel=info
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL:-postgresql://taskuser:change-me@postgres:5432/task_assistant}
+  #     - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+  #     - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+  #     - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+  #   depends_on:
+  #     - redis
+  #     - postgres
+  #   restart: unless-stopped
+
+  # Celery beat for scheduled tasks (uncomment for production)
+  # celery_beat:
+  #   build: .
+  #   container_name: task-assistant-beat
+  #   command: celery -A app.core.celery_tasks beat --loglevel=info
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL:-postgresql://taskuser:change-me@postgres:5432/task_assistant}
+  #     - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+  #     - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+  #   depends_on:
+  #     - redis
+  #   restart: unless-stopped
+
 volumes:
   task_db:
   # postgres_data:
+  # redis_data:
 
 networks:
   default:

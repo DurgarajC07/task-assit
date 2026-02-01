@@ -11,7 +11,8 @@ from pathlib import Path
 from app.config import settings
 from app.database import init_db, close_db
 from app.core.exceptions import TaskAssistantException
-from app.api import auth, tasks, chat, websocket
+from app.core.docs import custom_openapi, tags_metadata
+from app.api.v1 import api_v1_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,10 +34,14 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title=settings.app_name,
-    description="Multi-agent AI-powered personal task assistant",
+    title="Task Assistant AI SaaS API",
+    description="Production-grade, multi-tenant AI SaaS platform with advanced orchestration",
     version="1.0.0",
     lifespan=lifespan,
+    openapi_tags=tags_metadata,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 # Add CORS middleware
@@ -85,20 +90,20 @@ async def validation_exception_handler(request, exc: RequestValidationError):
 
 
 # Health check endpoint
-@app.get("/api/health")
+@app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "service": settings.app_name,
+        "service": "Task Assistant AI",
     }
 
 
-# Include routers
-app.include_router(auth.router)
-app.include_router(tasks.router)
-app.include_router(chat.router)
-app.include_router(websocket.router)
+# Include API v1 router
+app.include_router(api_v1_router, prefix="/api/v1")
+
+# Custom OpenAPI schema
+app.openapi = lambda: custom_openapi(app)
 
 # Mount static files
 static_dir = Path(__file__).parent / "static"
@@ -107,7 +112,7 @@ if static_dir.exists():
 
 
 # Root endpoint - Serve UI
-@app.get("/")
+@app.get("/", include_in_schema=False)
 async def root():
     """Root endpoint - Serve the UI."""
     static_dir = Path(__file__).parent / "static"
@@ -117,9 +122,16 @@ async def root():
         return FileResponse(str(html_file), media_type="text/html")
     
     return {
-        "service": settings.app_name,
+        "service": "Task Assistant AI SaaS API",
         "version": "1.0.0",
         "documentation": "/docs",
+        "api_version": "v1",
+        "endpoints": {
+            "docs": "/docs",
+            "redoc": "/redoc",
+            "openapi": "/openapi.json",
+            "health": "/health"
+        }
     }
 
 
